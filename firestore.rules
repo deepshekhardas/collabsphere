@@ -1,0 +1,190 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // Users
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['onboarded', 'role']);
+    }
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'role', 'onboarded', 'createdAt']) &&
+             data.keys().size() == 4 &&
+             data.email is string && data.email.size() <= 200 &&
+             data.role in ['business', 'creator'] &&
+             data.onboarded is bool;
+    }
+
+    // Business Profiles
+    match /businessProfiles/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(userId) && isValidBusiness(incoming());
+    }
+    function isValidBusiness(data) {
+      return data.keys().hasAll(['name', 'industry', 'targetAudience', 'offer', 'pricePoint', 'monthlyBudget', 'platforms', 'brandSummary', 'id', 'updatedAt']) &&
+             data.keys().size() == 10 &&
+             data.name is string && data.name.size() <= 100 &&
+             data.industry is string &&
+             data.offer is string;
+    }
+
+    // Creator Profiles
+    match /creatorProfiles/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(userId) && isValidCreator(incoming());
+    }
+    function isValidCreator(data) {
+      return data.keys().hasAll(['displayName', 'bio', 'platforms', 'audienceSize', 'id', 'updatedAt']) &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             data.bio is string && data.bio.size() <= 1000;
+    }
+
+    // Campaigns
+    match /campaigns/{campaignId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().businessId == request.auth.uid && isValidCampaign(incoming());
+      allow update: if isSignedIn() && existing().businessId == request.auth.uid && isValidCampaignUpdate(incoming(), existing());
+      allow delete: if isSignedIn() && existing().businessId == request.auth.uid;
+    }
+    function isValidCampaign(data) {
+      return data.keys().hasAll(['title', 'description', 'businessId', 'budget', 'payoutPerCreator', 'niche', 'platform', 'status', 'createdAt']) &&
+             data.title is string && data.title.size() <= 200 &&
+             data.description is string && data.description.size() <= 6000 &&
+             data.businessId == request.auth.uid &&
+             data.budget is number && data.budget >= 0 &&
+             data.payoutPerCreator is number && data.payoutPerCreator >= 0 &&
+             data.niche is list &&
+             data.platform is list &&
+             data.status in ['active', 'paused', 'completed'] &&
+             data.createdAt is timestamp;
+    }
+    function isValidCampaignUpdate(data, existingData) {
+      return data.diff(existingData).affectedKeys().hasOnly(['title', 'description', 'budget', 'payoutPerCreator', 'niche', 'platform', 'status', 'updatedAt']) &&
+             data.title is string && data.title.size() <= 200 &&
+             data.description is string && data.description.size() <= 6000 &&
+             data.budget is number && data.budget >= 0 &&
+             data.payoutPerCreator is number && data.payoutPerCreator >= 0 &&
+             data.niche is list &&
+             data.platform is list;
+    }
+
+    // Submissions
+    match /submissions/{submissionId} {
+      allow get: if isSignedIn() && (resource.data.creatorId == request.auth.uid || resource.data.businessId == request.auth.uid);
+      allow list: if isSignedIn() && (resource.data.creatorId == request.auth.uid || resource.data.businessId == request.auth.uid);
+      allow create: if isSignedIn() && incoming().creatorId == request.auth.uid && isValidSubmission(incoming());
+      allow update: if isSignedIn() && (
+        (existing().creatorId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['contentUrl', 'contentType'])) ||
+        (existing().businessId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'feedback']))
+      );
+    }
+    function isValidSubmission(data) {
+      return data.campaignId is string && 
+             data.creatorId == request.auth.uid &&
+             data.businessId is string &&
+             data.contentUrl is string && 
+             data.status in ['pending', 'approved', 'rejected', 'revision'];
+    }
+
+    // Scripts
+    match /scripts/{scriptId} {
+      allow read: if isSignedIn() && resource.data.businessId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().businessId == request.auth.uid && isValidScript(incoming());
+      allow update: if isSignedIn() && existing().businessId == request.auth.uid && isValidScript(incoming());
+      allow delete: if isSignedIn() && existing().businessId == request.auth.uid;
+    }
+    function isValidScript(data) {
+      return data.businessId == request.auth.uid &&
+             data.title is string && data.title.size() <= 1000 &&
+             data.content is string && data.content.size() <= 50000 &&
+             data.type is string &&
+             data.createdAt is timestamp;
+    }
+
+    // Transactions
+    match /transactions/{transactionId} {
+      allow get: if isSignedIn() && request.auth.uid == resource.data.userId;
+      allow list: if isSignedIn() && request.auth.uid == resource.data.userId;
+      allow create: if isSignedIn() && (
+        request.auth.uid == incoming().userId || 
+        // Allow business to create payout transactions for creators
+        (incoming().type == 'deposit' && incoming().label.matches('^Engagement Reward.*'))
+      ) && isValidTransaction(incoming());
+    }
+    function isValidTransaction(data) {
+      return data.type in ['deposit', 'withdrawal', 'earning', 'payment', 'payout'] &&
+             data.amount is number &&
+             data.label is string && data.label.size() <= 200 &&
+             data.status in ['pending', 'completed', 'failed'] &&
+             data.createdAt is timestamp;
+    }
+
+    // Wallets
+    match /wallets/{userId} {
+      allow get: if isSignedIn();
+      allow create: if isSignedIn() && (
+        request.auth.uid == userId || 
+        (request.auth.uid != userId && incoming().balance >= 0)
+      );
+      allow update: if isSignedIn(); // Opened up for prototype to allow settlement
+    }
+
+    // Messages
+    match /messages/{messageId} {
+      allow read: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn() && request.auth.uid in incoming().participants && incoming().senderId == request.auth.uid && isValidMessage(incoming());
+      allow update: if false;
+      allow delete: if false;
+    }
+    function isValidMessage(data) {
+      return data.keys().hasAll(['participants', 'senderId', 'senderName', 'text', 'createdAt']) &&
+             data.participants is list && data.participants.size() == 2 &&
+             data.senderId is string &&
+             data.senderName is string && data.senderName.size() <= 100 &&
+             data.text is string && data.text.size() <= 2000;
+    }
+
+    // Support Tickets
+    match /supportTickets/{ticketId} {
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && isValidTicket(incoming());
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+    function isValidTicket(data) {
+       return data.keys().hasAll(['userId', 'userEmail', 'topic', 'message', 'status', 'createdAt']) &&
+              data.userId == request.auth.uid &&
+              data.userEmail is string && data.userEmail.size() <= 200 &&
+              data.topic is string && data.topic.size() <= 100 &&
+              data.message is string && data.message.size() <= 5000 &&
+              data.status in ['open', 'closed', 'resolved'] &&
+              data.createdAt is timestamp;
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && isValidNotification(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+    }
+    function isValidNotification(data) {
+       return data.keys().hasAll(['userId', 'title', 'message', 'read', 'createdAt']) &&
+              data.userId is string && data.userId.size() <= 128 &&
+              data.title is string && data.title.size() <= 200 &&
+              data.message is string && data.message.size() <= 1000 &&
+              data.read is bool &&
+              data.createdAt is timestamp;
+    }
+  }
+}

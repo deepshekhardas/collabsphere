@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { initialDashboardTab, rememberDashboardTab } from './src/lib/dashboard-navigation';
+let writes=0;
+(globalThis as any).window={location:{search:''},localStorage:{getItem:()=> 'removed-tab',setItem:()=>{writes++;}}};
+assert.equal(initialDashboardTab('businessActiveTab',['overview','settings']),'overview');
+(globalThis as any).window.localStorage.getItem=()=> 'settings';
+assert.equal(initialDashboardTab('businessActiveTab',['overview','settings']),'settings');
+(globalThis as any).window.location.search='?demo=1';
+assert.equal(initialDashboardTab('businessActiveTab',['overview','settings']),'overview');
+rememberDashboardTab('businessActiveTab','marketplace'); assert.equal(writes,0);
+(globalThis as any).window.location.search='';
+(globalThis as any).window.localStorage={getItem:()=>{throw Error('blocked')},setItem:()=>{throw Error('blocked')}};
+assert.equal(initialDashboardTab('businessActiveTab',['overview']),'overview');
+assert.doesNotThrow(()=>rememberDashboardTab('businessActiveTab','overview'));
+console.log('5 navigation regression cases passed');

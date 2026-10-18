@@ -1,0 +1,59 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --border: 0 0% 12%;
+    --radius: 0.5rem;
+  }
+
+  body {
+    @apply bg-[#0a0a0a] text-zinc-100 font-sans antialiased overflow-x-hidden selection:bg-rose-500/30 selection:text-rose-200;
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-zinc-800 rounded-full border-[2px] border-[#0a0a0a] transition-colors;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-zinc-700;
+  }
+}
+
+.bg-dot-pattern {
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+.card {
+  @apply bg-[#111111] border border-zinc-800/80 rounded-2xl p-6 transition-all duration-300 shadow-sm;
+}
+
+.card:hover {
+  @apply border-zinc-700 shadow-md;
+}
+
+.label {
+  @apply text-xs font-semibold tracking-widest text-zinc-500 uppercase flex items-center space-x-1;
+}
+
+.btn-primary {
+  @apply flex items-center justify-center rounded-xl bg-zinc-100 px-5 py-2.5 text-sm font-semibold text-zinc-900 transition-all hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+}

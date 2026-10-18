@@ -1,0 +1,13 @@
+{
+  "name": "CollabSphere",
+  "description": "An AI-powered creator marketplace and business growth operating system. Connect brands with top creators, manage integrated campaigns, and track analytics in a unified dashboard.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "AI Script Generation",
+    "Creator Marketplace",
+    "Campaign Management"
+  ]
+}
