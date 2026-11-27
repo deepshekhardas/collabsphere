@@ -18,6 +18,7 @@ interface RoomProps {
 export function BrandRoom({ workspaceId, api, perform, busy, revision }: RoomProps) {
   const [tab, setTab] = useState<Tab>("campaigns");
   const [offerFilter, setOfferFilter] = useState<OfferFilter>("all");
+  const [openOfferId, setOpenOfferId] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const path = "/workspaces/" + workspaceId;
   const load = useCallback((signal: AbortSignal) => api<BrandWorkspace>(path, { signal }), [api, path]);
@@ -30,10 +31,17 @@ export function BrandRoom({ workspaceId, api, perform, busy, revision }: RoomPro
   const next = ready[0];
   const drafts = data.campaigns.some((campaign) => campaign.status === "draft");
   const nextStep = next
-    ? { title: "A deliverable is ready.", detail: next.campaignTitle + " · " + next.creatorName, label: "Open review queue", tab: "offers" as const, focus: "offer-list" }
+    ? { title: "A deliverable is ready.", detail: next.campaignTitle + " · " + next.creatorName, label: "Open deliverable review", tab: "offers" as const, focus: "offer-room-heading" }
     : open.length
       ? { title: "Find the right creator.", detail: "You have an open campaign ready for a new collaboration.", label: "Find creators", tab: "creators" as const, focus: "directory-panel" }
       : { title: drafts ? "Get a brief ready to share." : "Start with a campaign brief.", detail: drafts ? "Open a draft when the deliverables and scope are clear." : "Describe the work before you send your first offer.", label: "Go to campaigns", tab: "campaigns" as const, focus: "campaigns-panel" };
+
+  function openOffers(filter: OfferFilter, offerId: string | null = null) {
+    setOfferFilter(filter);
+    setOpenOfferId(offerId);
+    setTab("offers");
+    focusSection(offerId ? "offer-room-heading" : "offer-list");
+  }
 
   return (
     <>
@@ -44,7 +52,7 @@ export function BrandRoom({ workspaceId, api, perform, busy, revision }: RoomPro
       <div className="cs-command-grid">
         <FocusCard label="Next for the brand" title={nextStep.title} action={
           <button className="cs-button cs-inverse" onClick={() => {
-            if (nextStep.tab === "offers") setOfferFilter("action");
+            if (next) { openOffers("action", next.id); return; }
             setTab(nextStep.tab);
             focusSection(nextStep.focus);
           }}>
@@ -53,8 +61,8 @@ export function BrandRoom({ workspaceId, api, perform, busy, revision }: RoomPro
         }>{nextStep.detail}</FocusCard>
         <div className="cs-metrics" aria-label="Workspace activity at a glance">
           <button onClick={() => { setTab("campaigns"); focusSection("campaigns-panel"); }}><FolderKanban size={17} aria-hidden="true" /><small>Open campaigns</small><strong>{open.length}</strong></button>
-          <button onClick={() => { setOfferFilter("all"); setTab("offers"); focusSection("offer-list"); }}><Handshake size={17} aria-hidden="true" /><small>Offers</small><strong>{data.offers.length}</strong></button>
-          <button onClick={() => { setOfferFilter("action"); setTab("offers"); focusSection("offer-list"); }}><ClipboardCheck size={17} aria-hidden="true" /><small>Ready for review</small><strong>{ready.length}</strong></button>
+          <button onClick={() => openOffers("all")}><Handshake size={17} aria-hidden="true" /><small>Offers</small><strong>{data.offers.length}</strong></button>
+          <button onClick={() => openOffers("action")}><ClipboardCheck size={17} aria-hidden="true" /><small>Ready for review</small><strong>{ready.length}</strong></button>
         </div>
       </div>
       <nav className="cs-tabs" aria-label="Brand workspace sections">
@@ -64,7 +72,12 @@ export function BrandRoom({ workspaceId, api, perform, busy, revision }: RoomPro
         <button aria-current={tab === "team" ? "page" : undefined} onClick={() => setTab("team")}><Users size={17} aria-hidden="true" /> Team</button>
       </nav>
       {tab === "campaigns" && <Campaigns path={path} campaigns={data.campaigns} api={api} perform={perform} busy={busy} />}
-      {tab === "offers" && <OfferList offers={data.offers} persona="brand" api={api} perform={perform} busy={busy} filter={offerFilter} setFilter={setOfferFilter} />}
+      {tab === "offers" && (
+        <OfferList
+          offers={data.offers} persona="brand" api={api} perform={perform} busy={busy}
+          filter={offerFilter} setFilter={setOfferFilter} openOfferId={openOfferId} setOpenOfferId={setOpenOfferId}
+        />
+      )}
       {tab === "creators" && <Directory path={path} open={open} api={api} perform={perform} busy={busy} />}
       {tab === "team" && <Team path={path} data={data} api={api} perform={perform} busy={busy} />}
     </>

@@ -89,6 +89,7 @@ export function WorkspaceShell({ user, signOut }: { user: User; signOut: () => P
   const api = useMemo(() => accountApi(user), [user]);
   const [view, setView] = useState<View>("overview");
   const [creatorFilter, setCreatorFilter] = useState<OfferFilter>("all");
+  const [creatorOfferId, setCreatorOfferId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -111,19 +112,23 @@ export function WorkspaceShell({ user, signOut }: { user: User; signOut: () => P
     setError("");
   }
 
-  const perform: Perform = async (action, message) => {
+  const perform: Perform = async (action, message, onFeedback) => {
     if (pending.current) return false;
     pending.current = true;
     setBusy(true);
     setError("");
     setStatus("");
+    onFeedback?.(null);
     try {
       await action();
       setRevision((value) => value + 1);
-      setStatus(message);
+      if (onFeedback) onFeedback({ message, error: false });
+      else setStatus(message);
       return true;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Couldn't complete that action.");
+      const failure = reason instanceof Error ? reason.message : "Couldn't complete that action.";
+      if (onFeedback) onFeedback({ message: failure, error: true });
+      else setError(failure);
       return false;
     } finally {
       setBusy(false);
@@ -194,15 +199,21 @@ export function WorkspaceShell({ user, signOut }: { user: User; signOut: () => P
             <FocusCard tone="creator" label="Next for the creator"
               title={creatorNext?.status === "sent" ? "An offer is waiting." : creatorNext?.status === "changes_requested" ? "Your next revision is due." : creatorNext ? "Your deliverable is next." : account.data.creator?.published ? "Your profile is discoverable." : "Help brands find your work."}
               action={<button className="cs-button cs-inverse" onClick={() => {
-                if (creatorNext) setCreatorFilter("action");
-                focusSection(creatorNext ? "offer-list" : "discovery-profile");
+                if (creatorNext) {
+                  setCreatorFilter("action");
+                  setCreatorOfferId(creatorNext.id);
+                }
+                focusSection(creatorNext ? "offer-room-heading" : "discovery-profile");
               }}>
-                {creatorNext ? "View collaborations" : "Edit profile"} <ArrowRight size={17} aria-hidden="true" />
+                {creatorNext ? "Open collaboration" : "Edit profile"} <ArrowRight size={17} aria-hidden="true" />
               </button>}>
               {creatorNext ? creatorNext.campaignTitle + " · " + creatorNext.workspaceName
                 : account.data.creator?.published ? "Keep your profile and portfolio current while you wait for an offer." : "Publish a profile with your specialty and a link to your work."}
             </FocusCard>
-            <OfferList offers={account.data.offers} persona="creator" api={api} perform={perform} busy={busy} filter={creatorFilter} setFilter={setCreatorFilter} />
+            <OfferList
+              offers={account.data.offers} persona="creator" api={api} perform={perform} busy={busy}
+              filter={creatorFilter} setFilter={setCreatorFilter} openOfferId={creatorOfferId} setOpenOfferId={setCreatorOfferId}
+            />
             <CreatorProfileForm creator={account.data.creator} api={api} perform={perform} busy={busy} />
           </>
         ) : (

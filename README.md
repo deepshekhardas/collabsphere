@@ -9,6 +9,7 @@ CollabSphere is a workspace for brands and independent creators. Brand teams pre
 - **Account:** Google or email/password sign-in, email verification and password reset through Firebase Authentication. A single account can join brand teams and manage a creator profile.
 - **Brand:** Create a workspace, invite teammates with verified-email-bound links, and control editor access. Draft and open a campaign, find an opted-in creator, agree on a proposed USD fee, and review revisions. The team sees a log of recent workspace activity.
 - **Creator:** Choose whether to publish your discovery profile, accept or decline an offer, submit an HTTPS deliverable link, and see feedback and revision history.
+- **Collaboration room:** Open an offer to see the campaign brief, proposed fee, latest deliverable and prior versions together. Brands can approve the latest revision or request changes. Creators can read the feedback and submit a new revision in the same room.
 - **Demo:** Open `/?demo=1` for the isolated sample workspace. It uses synthetic profiles and browser-local state and works without Firebase.
 
 Project fees are recorded for coordination. The application does not charge customers, pay creators, send external collaboration notifications, or generate legal contracts. The application uses a new SQLite data model. Legacy prototype data in Firestore is outside this instance.

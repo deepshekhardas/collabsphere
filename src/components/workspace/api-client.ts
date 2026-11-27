@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
 
 export type Api = <T>(path: string, options?: { method?: string; body?: unknown; signal?: AbortSignal }) => Promise<T>;
-export type Perform = (action: () => Promise<unknown>, message: string) => Promise<boolean>;
+export type OperationFeedback = { message: string; error: boolean };
+export type Perform = (action: () => Promise<unknown>, message: string, onFeedback?: (feedback: OperationFeedback | null) => void) => Promise<boolean>;
 
 
 export function useResource<T>(load: (signal: AbortSignal) => Promise<T>, revision: number) {

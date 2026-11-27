@@ -10,6 +10,7 @@ import { WorkspaceShell } from "./WorkspaceShell";
 import { Brand, Feedback } from "./ui";
 import googleMark from "./google-g.png";
 import "./workspace.css";
+import "./collaboration-room.css";
 
 type PublicConfig = FirebaseOptions & { emulatorUrl?: string };
 const emulatorConnections = new WeakSet<Auth>();
