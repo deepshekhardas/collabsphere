@@ -2,7 +2,8 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import firebaseConfig from "../../firebase-applet-config.json";
+// Legacy prototype modules are retained for reference and are not mounted by App.
+import firebaseConfig from "../../firebase-applet-config.example.json";
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);

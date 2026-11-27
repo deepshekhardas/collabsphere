@@ -1,127 +1,87 @@
-import express from "express";
-import path from "path";
-import Stripe from "stripe";
 import "dotenv/config";
-import { GoogleGenAI } from "@google/genai";
+import express from "express";
+import { isAbsolute, resolve } from "node:path";
+import { getApps, initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
+import { workspaceApi } from "./server/api";
+import { WorkspaceError, WorkspaceStore } from "./server/store";
 
-let stripeClient: Stripe | null = null;
+const production = process.argv.includes("--production") || process.env.NODE_ENV === "production";
+const emulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+const projectId = process.env.FIREBASE_PROJECT_ID;
+const apiKey = process.env.FIREBASE_API_KEY;
+const authDomain = process.env.FIREBASE_AUTH_DOMAIN;
+const appId = process.env.FIREBASE_APP_ID;
+const dbPath = process.env.COLLABSPHERE_DB_PATH;
 
-function getStripe(): Stripe | null {
-  if (!stripeClient) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (key) {
-      stripeClient = new Stripe(key);
-    }
-  }
-  return stripeClient;
+if (emulatorHost && (production || !projectId?.startsWith("demo-") || !/^(127\.0\.0\.1|localhost):\d{1,5}$/.test(emulatorHost))) {
+  throw new Error("Auth emulator requires a loopback address and a demo- project in development.");
+}
+if ((projectId || apiKey || authDomain || emulatorHost) && (!projectId || !apiKey || !authDomain)) {
+  throw new Error("Set FIREBASE_PROJECT_ID, FIREBASE_API_KEY and FIREBASE_AUTH_DOMAIN together.");
+}
+if (production && projectId && (!dbPath || !isAbsolute(dbPath))) {
+  throw new Error("Production accounts require an absolute COLLABSPHERE_DB_PATH on a durable volume.");
 }
 
-const ai = new GoogleGenAI({}); // Automatically picks up GEMINI_API_KEY
-
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
-
-  app.use(express.json());
-
-  app.post("/api/match-creators", async (req, res) => {
-    try {
-      const { campaignDescription, creators } = req.body;
-      if (!campaignDescription || !creators || !Array.isArray(creators)) {
-        return res.status(400).json({ error: "Missing campaignDescription or creators" });
-      }
-
-      const prompt = `
-        You are an AI matching engine. 
-        Campaign Description: "${campaignDescription}"
-        
-        Available Creators (JSON):
-        ${JSON.stringify(creators.map(c => ({ id: c.id, name: c.name, bio: c.bio, niche: c.niche })), null, 2)}
-        
-        For each creator, analyze their compatibility with the campaign. 
-        Return ONLY a raw JSON array of objects with the following schema:
-        [
-          {
-            "id": "creator_id",
-            "matchPercentage": 98,
-            "reason": "Brief 1-sentence reason why they match"
-          }
-        ]
-      `;
-
-      const aiResponse = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-      });
-      
-      let text = aiResponse.text || "[]";
-      // Clean up markdown code blocks if any
-      text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-      const matchScores = JSON.parse(text);
-      res.json(matchScores);
-    } catch (error: any) {
-      console.error("Gemini Match Error:", error);
-      res.status(500).json({ error: error.message });
+const runtimeConfig = projectId && apiKey && authDomain
+  ? { projectId, apiKey, authDomain, ...(appId ? { appId } : {}), ...(emulatorHost ? { emulatorUrl: "http://" + emulatorHost } : {}) }
+  : null;
+const adminAuth = runtimeConfig ? getAuth(getApps()[0] ?? initializeApp({ projectId })) : null;
+const verify = adminAuth && (async (token: string) => {
+  let claims;
+  try {
+    claims = await adminAuth.verifyIdToken(token, true);
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? error.code : null;
+    if (code === "auth/internal-error" || code === "auth/insufficient-permission" || code === "app/invalid-credential") {
+      console.error("CollabSphere identity service is unavailable", code);
+      throw new WorkspaceError(503, "Sign-in verification is temporarily unavailable.");
     }
-  });
-
-  // API Route for Stripe Payment Intent
-  app.post("/api/create-payment-intent", async (req, res) => {
-    try {
-      const stripe = getStripe();
-      if (!stripe) {
-        return res.status(500).json({ error: "Stripe is not configured on the server." });
-      }
-
-      const { amount, userId } = req.body;
-
-      if (!amount || !userId) {
-        return res.status(400).json({ error: "Missing amount or userId" });
-      }
-
-      // Create a PaymentIntent with the specified amount.
-      // Stripe expects amounts in cents, so we multiply by 100
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount * 100),
-        currency: "usd",
-        metadata: {
-          userId: userId
-        },
-        automatic_payment_methods: {
-          enabled: true,
-        },
-      });
-
-      res.json({ clientSecret: paymentIntent.client_secret });
-    } catch (error: any) {
-      console.error("Stripe error:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Verify Payment Route (Optional backend verification/minting logic if you want the backend to securely write to Firestore via admin, but since we don't have Admin SDK set up, we'll confirm on the client side still, or simulate it. For real system we'd use webhooks.)
-  // We'll let the user know Webhooks require external URL access and Admin SDK.
-
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    // In express 4 we can use * but in v5 it's *all. The package.json says ^4.21.2 so * is fine.
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    throw new WorkspaceError(401, "Your sign-in has expired. Please sign in again.");
   }
+  if (!claims.email_verified || !claims.email) {
+    throw new WorkspaceError(403, "Verify your email before opening a workspace.");
+  }
+  return { uid: claims.uid, email: claims.email.trim().toLowerCase() };
+});
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+const port = Number(process.env.PORT || 3000);
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT must be between 1 and 65535.");
+const host = process.env.HOST || (production ? "0.0.0.0" : "127.0.0.1");
+const db = new WorkspaceStore(dbPath || (production && !runtimeConfig ? ":memory:" : "data/collabsphere.sqlite"));
+
+const app = express();
+app.disable("x-powered-by");
+if (production) app.set("env", "production");
+app.use((_request, response, next) => {
+  response.set({
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
   });
+  next();
+});
+app.use("/api", workspaceApi(db, verify, runtimeConfig));
+
+const vite = production ? null : await import("vite").then(({ createServer }) => createServer({
+  server: { middlewareMode: true },
+  appType: "spa",
+}));
+if (vite) {
+  app.use(vite.middlewares);
+} else {
+  const dist = resolve("dist");
+  app.use(express.static(dist, { index: false }));
+  app.get("*", (_req, res) => res.sendFile(resolve(dist, "index.html")));
 }
 
-startServer();
+const listener = app.listen(port, host, () => console.log(`CollabSphere on http://${host}:${port}`));
+function stop() {
+  listener.close(async () => {
+    await vite?.close();
+    db.close();
+  });
+}
+process.once("SIGINT", stop);
+process.once("SIGTERM", stop);
