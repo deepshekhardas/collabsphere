@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { ArrowUpRight, ClipboardList } from "lucide-react";
+import { ArrowUpRight, ClipboardList, Film } from "lucide-react";
 import type { Offer, OfferStatus } from "@/types/workspace";
 import type { Api, Perform } from "./api-client";
 
@@ -16,20 +16,42 @@ const labels: Record<OfferStatus, string> = {
 export const fee = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 export const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
-export function OfferList({ offers, persona, api, perform, busy }: {
+export type OfferFilter = "all" | "action" | "working" | "closed";
+const completed = new Set<OfferStatus>(["approved", "declined", "withdrawn"]);
+
+export function needsOfferAction(status: OfferStatus, persona: "creator" | "brand") {
+  return persona === "brand" ? status === "submitted" : ["sent", "accepted", "changes_requested"].includes(status);
+}
+
+export function OfferList({ offers, persona, api, perform, busy, filter: selected, setFilter }: {
   offers: Offer[]; persona: "creator" | "brand"; api: Api; perform: Perform; busy: boolean;
+  filter: OfferFilter; setFilter: (filter: OfferFilter) => void;
 }) {
   const asCreator = persona === "creator";
+  const closed = offers.filter((offer) => completed.has(offer.status));
+  const actionable = offers.filter((offer) => needsOfferAction(offer.status, persona));
+  const working = offers.filter((offer) => !completed.has(offer.status) && !needsOfferAction(offer.status, persona));
+  const filters: { key: OfferFilter; label: string; items: Offer[] }[] = [
+    { key: "all", label: "All offers", items: [...actionable, ...working, ...closed] },
+    { key: "action", label: asCreator ? "Needs your action" : "Needs review", items: actionable },
+    { key: "working", label: "In progress", items: working },
+    { key: "closed", label: "Closed", items: closed },
+  ];
+  const visible = filters.find((filter) => filter.key === selected)!.items;
   return (
-    <section className="cs-panel">
+    <section className="cs-panel" id="offer-list" tabIndex={-1}>
       <div className="cs-panel-heading">
-        <h2>{asCreator ? "Incoming offers" : "Collaboration offers"}</h2>
-        <span className="cs-pill">{offers.length}</span>
+        <div><h2>{asCreator ? "Your collaborations" : "Offers and deliverable review"}</h2>
+        <p>{asCreator ? "Respond to offers, submit your work and follow feedback." : "Track offers and review the latest revision once a creator submits it."}</p></div>
       </div>
+      {offers.length > 0 && <div className="cs-filter-group" role="group" aria-label="Filter offers">
+        {filters.map((filter) => <button aria-pressed={filter.key === selected} key={filter.key} onClick={() => setFilter(filter.key)}>{filter.label} <span>{filter.items.length}</span></button>)}
+      </div>}
+      <p className="cs-sr-only" role="status">{visible.length} {visible.length === 1 ? "offer" : "offers"} shown</p>
       {offers.length ? (
-        <div className="cs-records">
-          {offers.map((offer) => <OfferCard key={offer.id} offer={offer} asCreator={asCreator} api={api} perform={perform} busy={busy} />)}
-        </div>
+        visible.length ? <div className="cs-records">
+          {visible.map((offer) => <OfferCard key={offer.id} offer={offer} asCreator={asCreator} api={api} perform={perform} busy={busy} />)}
+        </div> : <div className="cs-empty"><ClipboardList size={25} aria-hidden="true" /><p>No offers match this view.</p></div>
       ) : (
         <div className="cs-empty"><ClipboardList size={25} aria-hidden="true" /><p>{asCreator ? "Offers from brands will appear here." : "Open a campaign and find a creator to send your first offer."}</p></div>
       )}
@@ -69,7 +91,7 @@ function OfferCard({ offer, asCreator, api, perform, busy }: {
   }
 
   return (
-    <article className="cs-record">
+    <article className={"cs-record cs-offer-record" + (needsOfferAction(offer.status, asCreator ? "creator" : "brand") ? " is-actionable" : "")}>
       <div className="cs-panel-heading">
         <div><small>{asCreator ? offer.workspaceName : offer.creatorName}</small><h3>{offer.campaignTitle}</h3></div>
         <span className={"cs-pill status-" + offer.status}>{labels[offer.status]}</span>
@@ -77,8 +99,15 @@ function OfferCard({ offer, asCreator, api, perform, busy }: {
       <p className="cs-offer-fee"><strong>{fee.format(offer.amountCents / 100)}</strong> proposed fee · {date.format(new Date(offer.createdAt))}</p>
       {offer.note && <p className="cs-prewrap">{offer.note}</p>}
       {asCreator && <details className="cs-details"><summary>Campaign brief</summary><p className="cs-prewrap">{offer.brief}</p></details>}
+      {latest && offer.status === "submitted" && !asCreator && (
+        <div className="cs-review-preview">
+          <div className="cs-process-icon"><Film size={20} aria-hidden="true" /></div>
+          <div><strong>Revision {latest.revision}</strong><p>Submitted {date.format(new Date(latest.createdAt))}</p></div>
+          <a className="cs-button cs-secondary" href={latest.url} target="_blank" rel="noopener noreferrer">Open deliverable <ArrowUpRight size={15} aria-hidden="true" /></a>
+        </div>
+      )}
       {offer.deliverables.length > 0 && (
-        <details className="cs-details" open={offer.status === "submitted" || offer.status === "changes_requested"}>
+        <details className="cs-details" open={offer.status === "changes_requested"}>
           <summary>Deliverable history ({offer.deliverables.length})</summary>
           <ul className="cs-revisions">
             {offer.deliverables.map((entry) => (

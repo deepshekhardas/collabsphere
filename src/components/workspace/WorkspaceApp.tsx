@@ -5,9 +5,10 @@ import {
   onIdTokenChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword,
   signInWithPopup, signOut, type Auth, type User,
 } from "firebase/auth";
-import { ArrowUpRight, LoaderCircle, MoveUpRight, ScanLine, Sparkles, Workflow } from "lucide-react";
+import { ArrowUpRight, Check, ClipboardCheck, FileText, Film, LoaderCircle, MoveUpRight } from "lucide-react";
 import { WorkspaceShell } from "./WorkspaceShell";
 import { Brand, Feedback } from "./ui";
+import googleMark from "./google-g.png";
 import "./workspace.css";
 
 type PublicConfig = FirebaseOptions & { emulatorUrl?: string };
@@ -51,14 +52,18 @@ function AuthFrame({ children }: { children: ReactNode }) {
       </header>
       <main id="main-content" className="cs-access-body">
         <div className="cs-access-story">
-          <div className="cs-eyebrow">The creator collaboration workspace</div>
-          <h1>Good work<br />starts with <em>the brief.</em></h1>
-          <p>Find your creative partner, agree on the work, and get from first offer to final approval in one place.</p>
-          <div className="cs-process">
-            <div><span className="cs-process-icon"><ScanLine size={19} /></span><span><strong>Discover creators</strong><small>Search profiles that chose to be listed</small></span></div>
-            <div><span className="cs-process-icon"><Workflow size={19} /></span><span><strong>Manage offers</strong><small>Keep briefs and proposed fees together</small></span></div>
-            <div><span className="cs-process-icon"><Sparkles size={19} /></span><span><strong>Review deliverables</strong><small>Track feedback and every revision</small></span></div>
-          </div>
+          <div className="cs-eyebrow">For brands and creators</div>
+          <h1>Good work starts <em>with a brief.</em></h1>
+          <p>Find your creative partner, agree on the work and review every revision in one shared workflow.</p>
+          <aside className="cs-access-preview" aria-label="Example collaboration">
+            <header><span>Sample campaign</span><span><span aria-hidden="true" /> Ready for review</span></header>
+            <h2>Field journal launch</h2>
+            <div className="cs-access-stages">
+              <div><FileText size={17} aria-hidden="true" /> <span>Brief shared</span><Check size={14} aria-hidden="true" /></div>
+              <div><Film size={17} aria-hidden="true" /> <span>Cut delivered</span><Check size={14} aria-hidden="true" /></div>
+              <div><ClipboardCheck size={17} aria-hidden="true" /> <span>Brand review</span></div>
+            </div>
+          </aside>
         </div>
         <div className="cs-access-card">{children}</div>
       </main>
@@ -71,6 +76,7 @@ function AccessForm({ auth }: { auth: Auth }) {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [googlePending, setGooglePending] = useState(false);
 
   function changeMode(next: typeof mode) {
     setMode(next);
@@ -78,12 +84,13 @@ function AccessForm({ auth }: { auth: Auth }) {
     setStatus("");
   }
 
-  async function action(callback: () => Promise<unknown>) {
+  async function action(callback: () => Promise<unknown>, google = false) {
     setBusy(true);
+    setGooglePending(google);
     setError("");
     setStatus("");
     try { await callback(); } catch (error) { setError(authMessage(error)); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setGooglePending(false); }
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -108,24 +115,28 @@ function AccessForm({ auth }: { auth: Auth }) {
 
   return (
     <>
-      <h2>{mode === "reset" ? "Reset your password" : mode === "register" ? "Create your account" : "Welcome back"}</h2>
+      <h2>{mode === "reset" ? "Reset your password" : mode === "register" ? "Create your account" : "Sign in to CollabSphere"}</h2>
       <p>{mode === "reset" ? "Enter the email linked to your account." : "Sign in to your brand or creator workspace."}</p>
+      {mode !== "reset" && (
+        <>
+          <button className="cs-button cs-google" disabled={busy} onClick={() => void action(() => signInWithPopup(auth, new GoogleAuthProvider()), true)}>
+            {googlePending ? <LoaderCircle size={18} className="cs-spinner" aria-hidden="true" /> : <img src={googleMark} width="18" height="18" alt="" />}
+            {googlePending ? "Connecting to Google…" : "Continue with Google"}
+          </button>
+          <div className="cs-auth-divider"><span>or use your email</span></div>
+        </>
+      )}
+      <Feedback error>{error}</Feedback>
+      <Feedback>{status}</Feedback>
       <form onSubmit={submit} className="cs-stack">
         <label>Email address<input name="email" type="email" required maxLength={254} autoComplete="email" /></label>
         {mode !== "reset" && <label>Password<input name="password" type="password" minLength={mode === "register" ? 10 : undefined} maxLength={256} required autoComplete={mode === "register" ? "new-password" : "current-password"} /></label>}
         {mode === "register" && <small>Use at least 10 characters. You’ll verify your email before entering.</small>}
-        <Feedback error>{error}</Feedback>
-        <Feedback>{status}</Feedback>
         <button className="cs-button cs-primary" disabled={busy}>
-          {busy ? "Please wait…" : mode === "reset" ? "Send reset link" : mode === "register" ? "Create account" : "Sign in"}
+          {busy && !googlePending ? "Please wait…" : mode === "reset" ? "Send reset link" : mode === "register" ? "Create account" : "Sign in with email"}
           <ArrowUpRight size={17} aria-hidden="true" />
         </button>
       </form>
-      {mode !== "reset" && (
-        <button className="cs-button cs-secondary cs-google" disabled={busy} onClick={() => void action(() => signInWithPopup(auth, new GoogleAuthProvider()))}>
-          Continue with Google
-        </button>
-      )}
       <div className="cs-access-switch">
         {mode === "signin" ? (
           <>

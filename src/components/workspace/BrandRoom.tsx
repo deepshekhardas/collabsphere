@@ -1,11 +1,11 @@
 import { useCallback, useState, type FormEvent } from "react";
-import { ArrowUpRight, Building2, ClipboardList, Copy, FolderKanban, Plus, RefreshCw, Search, Users } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Building2, ClipboardCheck, ClipboardList, Copy, FolderKanban, Handshake, Plus, RefreshCw, Search, Users } from "lucide-react";
 import type { BrandWorkspace, Campaign, CreatorProfile } from "@/types/workspace";
-import { date, OfferList } from "./OfferList";
-import { Feedback } from "./ui";
+import { date, OfferList, type OfferFilter } from "./OfferList";
+import { Feedback, FocusCard, LoadingWorkspace, focusSection } from "./ui";
 import { useResource, type Api, type Perform } from "./api-client";
 
-type Tab = "campaigns" | "creators" | "team";
+type Tab = "campaigns" | "offers" | "creators" | "team";
 
 interface RoomProps {
   workspaceId: string;
@@ -17,15 +17,23 @@ interface RoomProps {
 
 export function BrandRoom({ workspaceId, api, perform, busy, revision }: RoomProps) {
   const [tab, setTab] = useState<Tab>("campaigns");
+  const [offerFilter, setOfferFilter] = useState<OfferFilter>("all");
   const [refresh, setRefresh] = useState(0);
   const path = "/workspaces/" + workspaceId;
   const load = useCallback((signal: AbortSignal) => api<BrandWorkspace>(path, { signal }), [api, path]);
   const { data, error } = useResource(load, revision + refresh);
 
   if (error) return <><Feedback error>{error}</Feedback><button className="cs-button cs-secondary" onClick={() => setRefresh((value) => value + 1)}>Retry workspace</button></>;
-  if (!data) return <p role="status">Loading brand workspace…</p>;
+  if (!data) return <LoadingWorkspace label="Loading brand workspace" />;
   const open = data.campaigns.filter((campaign) => campaign.status === "open");
-  const ready = data.offers.filter((offer) => offer.status === "submitted").length;
+  const ready = data.offers.filter((offer) => offer.status === "submitted");
+  const next = ready[0];
+  const drafts = data.campaigns.some((campaign) => campaign.status === "draft");
+  const nextStep = next
+    ? { title: "A deliverable is ready.", detail: next.campaignTitle + " · " + next.creatorName, label: "Open review queue", tab: "offers" as const, focus: "offer-list" }
+    : open.length
+      ? { title: "Find the right creator.", detail: "You have an open campaign ready for a new collaboration.", label: "Find creators", tab: "creators" as const, focus: "directory-panel" }
+      : { title: drafts ? "Get a brief ready to share." : "Start with a campaign brief.", detail: drafts ? "Open a draft when the deliverables and scope are clear." : "Describe the work before you send your first offer.", label: "Go to campaigns", tab: "campaigns" as const, focus: "campaigns-panel" };
 
   return (
     <>
@@ -33,22 +41,30 @@ export function BrandRoom({ workspaceId, api, perform, busy, revision }: RoomPro
         <div><p className="cs-eyebrow"><Building2 size={15} aria-hidden="true" /> Brand workspace <span>·</span> {data.workspace.role}</p><h1>{data.workspace.name}</h1><p>Manage your briefs, partnerships and creative delivery.</p></div>
         <button className="cs-button cs-secondary" disabled={busy} onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={16} aria-hidden="true" /> Refresh</button>
       </header>
-      <div className="cs-metrics" aria-label="Workspace activity at a glance">
-        <div><small>Open campaigns</small><strong>{open.length}</strong></div>
-        <div><small>Collaboration offers</small><strong>{data.offers.length}</strong></div>
-        <div><small>Ready for review</small><strong>{ready}</strong></div>
+      <div className="cs-command-grid">
+        <FocusCard label="Next for the brand" title={nextStep.title} action={
+          <button className="cs-button cs-inverse" onClick={() => {
+            if (nextStep.tab === "offers") setOfferFilter("action");
+            setTab(nextStep.tab);
+            focusSection(nextStep.focus);
+          }}>
+            {nextStep.label} <ArrowRight size={17} aria-hidden="true" />
+          </button>
+        }>{nextStep.detail}</FocusCard>
+        <div className="cs-metrics" aria-label="Workspace activity at a glance">
+          <button onClick={() => { setTab("campaigns"); focusSection("campaigns-panel"); }}><FolderKanban size={17} aria-hidden="true" /><small>Open campaigns</small><strong>{open.length}</strong></button>
+          <button onClick={() => { setOfferFilter("all"); setTab("offers"); focusSection("offer-list"); }}><Handshake size={17} aria-hidden="true" /><small>Offers</small><strong>{data.offers.length}</strong></button>
+          <button onClick={() => { setOfferFilter("action"); setTab("offers"); focusSection("offer-list"); }}><ClipboardCheck size={17} aria-hidden="true" /><small>Ready for review</small><strong>{ready.length}</strong></button>
+        </div>
       </div>
       <nav className="cs-tabs" aria-label="Brand workspace sections">
         <button aria-current={tab === "campaigns" ? "page" : undefined} onClick={() => setTab("campaigns")}><FolderKanban size={17} aria-hidden="true" /> Campaigns</button>
+        <button aria-current={tab === "offers" ? "page" : undefined} onClick={() => setTab("offers")}><ClipboardCheck size={17} aria-hidden="true" /> Offers &amp; review {ready.length > 0 && <span className="cs-tab-count">{ready.length}</span>}</button>
         <button aria-current={tab === "creators" ? "page" : undefined} onClick={() => setTab("creators")}><Search size={17} aria-hidden="true" /> Find creators</button>
         <button aria-current={tab === "team" ? "page" : undefined} onClick={() => setTab("team")}><Users size={17} aria-hidden="true" /> Team</button>
       </nav>
-      {tab === "campaigns" && (
-        <>
-          <Campaigns path={path} campaigns={data.campaigns} api={api} perform={perform} busy={busy} />
-          <OfferList offers={data.offers} persona="brand" api={api} perform={perform} busy={busy} />
-        </>
-      )}
+      {tab === "campaigns" && <Campaigns path={path} campaigns={data.campaigns} api={api} perform={perform} busy={busy} />}
+      {tab === "offers" && <OfferList offers={data.offers} persona="brand" api={api} perform={perform} busy={busy} filter={offerFilter} setFilter={setOfferFilter} />}
       {tab === "creators" && <Directory path={path} open={open} api={api} perform={perform} busy={busy} />}
       {tab === "team" && <Team path={path} data={data} api={api} perform={perform} busy={busy} />}
     </>
@@ -77,7 +93,7 @@ function Campaigns({ path, campaigns, api, perform, busy }: {
 
   const draft = editing !== "new" ? editing : null;
   return (
-    <section className="cs-panel">
+    <section className="cs-panel" id="campaigns-panel" tabIndex={-1}>
       <div className="cs-panel-heading">
         <div><h2>Campaigns</h2><p>Draft a brief and open it when you’re ready to invite creators.</p></div>
         <button className="cs-button cs-primary" disabled={busy} onClick={() => setEditing("new")}><Plus size={17} aria-hidden="true" /> New campaign</button>
@@ -144,7 +160,7 @@ function Directory({ path, open, api, perform, busy }: { path: string; open: Cam
   }
 
   return (
-    <section className="cs-panel">
+    <section className="cs-panel" id="directory-panel" tabIndex={-1}>
       <div className="cs-panel-heading"><div><h2>Creator discovery</h2><p>Find creators who’ve made their profile discoverable.</p></div></div>
       {!open.length && <p className="cs-callout">Open a campaign before sending an offer.</p>}
       <form className="cs-search" onSubmit={(event) => {

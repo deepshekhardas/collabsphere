@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useRef, useState, type FormEvent } from "react";
 import type { User } from "firebase/auth";
-import { ArrowUpRight, Building2, CircleUserRound, Compass, LogOut, Menu, Plus, RefreshCw, X } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Building2, CircleUserRound, Compass, LogOut, Menu, Plus, RefreshCw, X } from "lucide-react";
 import type { AccountWorkspace, CreatorProfile } from "@/types/workspace";
 import { BrandRoom } from "./BrandRoom";
-import { OfferList } from "./OfferList";
-import { Brand, Feedback } from "./ui";
+import { needsOfferAction, OfferList, type OfferFilter } from "./OfferList";
+import { Brand, Feedback, FocusCard, LoadingWorkspace, focusSection } from "./ui";
 import { accountApi, useResource, type Api, type Perform } from "./api-client";
 
 type View = "overview" | "creator" | { workspaceId: string };
@@ -26,7 +26,7 @@ function CreatorProfileForm({ creator, api, perform, busy }: {
   }
 
   return (
-    <section className="cs-panel">
+    <section className="cs-panel" id="discovery-profile" tabIndex={-1}>
       <div className="cs-panel-heading"><h2>Discovery profile</h2><span className="cs-pill">{creator?.published ? "Listed" : "Private"}</span></div>
       <p>Share only information you’re comfortable showing to signed-in brands. Your account email is private.</p>
       <form onSubmit={submit} className="cs-stack">
@@ -43,12 +43,24 @@ function CreatorProfileForm({ creator, api, perform, busy }: {
   );
 }
 
-function Overview({ data, create, openCreator, busy }: {
-  data: AccountWorkspace; create: (name: string) => void; openCreator: () => void; busy: boolean;
+function Overview({ data, create, openCreator, openBrand, busy }: {
+  data: AccountWorkspace; create: (name: string) => void; openCreator: () => void; openBrand: (id: string) => void; busy: boolean;
 }) {
   return (
     <>
       <header className="cs-page-heading"><p className="cs-eyebrow">Your account</p><h1>Workspace overview</h1><p>Manage brand campaigns and your own creator profile from the same account.</p></header>
+      {data.workspaces.length > 0 && <section className="cs-panel">
+        <div className="cs-panel-heading"><h2>Your brand workspaces</h2></div>
+        <div className="cs-workspace-list">
+          {data.workspaces.map((workspace) => (
+            <button key={workspace.id} onClick={() => openBrand(workspace.id)}>
+              <span className="cs-process-icon"><Building2 size={17} aria-hidden="true" /></span>
+              <span><strong>{workspace.name}</strong><small>{workspace.role}</small></span>
+              <ArrowRight size={18} aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+      </section>}
       <div className="cs-overview-grid">
         <section className="cs-panel">
           <div className="cs-process-icon"><Building2 size={19} /></div>
@@ -76,6 +88,7 @@ function Overview({ data, create, openCreator, busy }: {
 export function WorkspaceShell({ user, signOut }: { user: User; signOut: () => Promise<void> }) {
   const api = useMemo(() => accountApi(user), [user]);
   const [view, setView] = useState<View>("overview");
+  const [creatorFilter, setCreatorFilter] = useState<OfferFilter>("all");
   const [revision, setRevision] = useState(0);
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -89,6 +102,7 @@ export function WorkspaceShell({ user, signOut }: { user: User; signOut: () => P
   const loadAccount = useCallback((signal: AbortSignal) => api<AccountWorkspace>("/account", { signal }), [api]);
   const account = useResource(loadAccount, revision);
   const selected = typeof view === "object" ? account.data?.workspaces.find((workspace) => workspace.id === view.workspaceId) : null;
+  const creatorNext = account.data?.offers.find((offer) => needsOfferAction(offer.status, "creator"));
 
   function navigate(next: View) {
     setView(next);
@@ -130,7 +144,7 @@ export function WorkspaceShell({ user, signOut }: { user: User; signOut: () => P
         <button className="cs-button cs-secondary cs-menu" onClick={() => setMenu(!menu)} aria-controls="workspace-menu" aria-expanded={menu}>
           {menu ? <X size={17} aria-hidden="true" /> : <Menu size={17} aria-hidden="true" />} Menu
         </button>
-        <div className="cs-topbar-account"><span>{user.email}</span><button className="cs-button cs-quiet" disabled={busy} onClick={() => void perform(signOut, "")}><LogOut size={17} aria-hidden="true" /> Sign out</button></div>
+        <div className="cs-topbar-account"><span className="cs-account-avatar" aria-hidden="true">{user.email?.slice(0, 1).toUpperCase()}</span><span>{user.email}</span><button className="cs-button cs-quiet" disabled={busy} onClick={() => void perform(signOut, "")}><LogOut size={17} aria-hidden="true" /> Sign out</button></div>
       </header>
       <aside className={"cs-sidebar" + (menu ? " is-open" : "")} id="workspace-menu">
         <nav aria-label="Workspaces">
@@ -163,9 +177,9 @@ export function WorkspaceShell({ user, signOut }: { user: User; signOut: () => P
         <Feedback error>{error || account.error}</Feedback>
         <Feedback>{status}</Feedback>
         {!account.data ? (
-          account.error ? <button className="cs-button cs-secondary" onClick={() => setRevision((value) => value + 1)}>Retry loading</button> : <p role="status">Loading your workspace…</p>
+          account.error ? <button className="cs-button cs-secondary" onClick={() => setRevision((value) => value + 1)}>Retry loading</button> : <LoadingWorkspace label="Loading your workspace" />
         ) : view === "overview" ? (
-          <Overview data={account.data} busy={busy} openCreator={() => navigate("creator")} create={(name) => void perform(async () => {
+          <Overview data={account.data} busy={busy} openCreator={() => navigate("creator")} openBrand={(workspaceId) => navigate({ workspaceId })} create={(name) => void perform(async () => {
             const added = await api<{ id: string }>("/workspaces", { method: "POST", body: { name } });
             setView({ workspaceId: added.id });
           }, "Brand workspace created.")} />
@@ -177,8 +191,19 @@ export function WorkspaceShell({ user, signOut }: { user: User; signOut: () => P
                 <RefreshCw size={16} aria-hidden="true" /> Refresh
               </button>
             </header>
+            <FocusCard tone="creator" label="Next for the creator"
+              title={creatorNext?.status === "sent" ? "An offer is waiting." : creatorNext?.status === "changes_requested" ? "Your next revision is due." : creatorNext ? "Your deliverable is next." : account.data.creator?.published ? "Your profile is discoverable." : "Help brands find your work."}
+              action={<button className="cs-button cs-inverse" onClick={() => {
+                if (creatorNext) setCreatorFilter("action");
+                focusSection(creatorNext ? "offer-list" : "discovery-profile");
+              }}>
+                {creatorNext ? "View collaborations" : "Edit profile"} <ArrowRight size={17} aria-hidden="true" />
+              </button>}>
+              {creatorNext ? creatorNext.campaignTitle + " · " + creatorNext.workspaceName
+                : account.data.creator?.published ? "Keep your profile and portfolio current while you wait for an offer." : "Publish a profile with your specialty and a link to your work."}
+            </FocusCard>
+            <OfferList offers={account.data.offers} persona="creator" api={api} perform={perform} busy={busy} filter={creatorFilter} setFilter={setCreatorFilter} />
             <CreatorProfileForm creator={account.data.creator} api={api} perform={perform} busy={busy} />
-            <OfferList offers={account.data.offers} persona="creator" api={api} perform={perform} busy={busy} />
           </>
         ) : (
           <BrandRoom key={view.workspaceId} workspaceId={view.workspaceId} api={api} perform={perform} busy={busy} revision={revision} />

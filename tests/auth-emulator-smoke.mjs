@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { deleteApp, initializeApp } from "firebase/app";
+import { connectAuthEmulator, getAuth, GoogleAuthProvider, signInWithCredential } from "firebase/auth";
 
 function localUrl(value) {
   const url = new URL(value);
@@ -30,6 +32,21 @@ const runtime = await api("/config");
 assert.equal(runtime.firebase.projectId, project);
 assert.equal(runtime.firebase.emulatorUrl, emulator);
 await api("/account", { token: "syntactically.valid.invalid.signature", status: 401 });
+
+const googleApp = initializeApp({ apiKey: "local-emulator-key", projectId: project }, "google-smoke");
+try {
+  const googleAuth = getAuth(googleApp);
+  connectAuthEmulator(googleAuth, emulator, { disableWarnings: true });
+  const googleEmail = "google-" + randomUUID() + "@example.test";
+  const google = await signInWithCredential(googleAuth, GoogleAuthProvider.credential(JSON.stringify({
+    sub: randomUUID(), email: googleEmail, email_verified: true, name: "Emulator Google User",
+  })));
+  assert.equal(google.providerId, GoogleAuthProvider.PROVIDER_ID);
+  assert.equal(google.user.emailVerified, true);
+  assert.equal((await api("/account", { token: await google.user.getIdToken() })).account.email, googleEmail);
+} finally {
+  await deleteApp(googleApp);
+}
 
 async function verifiedUser(role) {
   const email = role + "-" + randomUUID() + "@example.test";
@@ -74,4 +91,4 @@ await api(offerPath + "/response", { token: creator.token, body: { action: "acce
 await api(offerPath + "/deliverables", { token: creator.token, body: { url: "https://example.test/emulator-deliverable" }, status: 204 });
 await api(offerPath + "/review", { token: brand.token, body: { revision: 1, decision: "approved" }, status: 204 });
 assert.equal((await api("/account", { token: creator.token })).offers[0].status, "approved");
-console.log("Firebase Auth Emulator passed: verification, identity isolation, and brand-to-creator approval.");
+console.log("Firebase Auth Emulator passed: Google, email verification, identity isolation, and brand-to-creator approval.");
