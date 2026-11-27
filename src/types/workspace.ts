@@ -53,6 +53,7 @@ export interface Offer {
   brief: string;
   workspaceName: string;
   creatorName: string;
+  viewerIsCreator: boolean;
   amountCents: number;
   note: string;
   status: OfferStatus;

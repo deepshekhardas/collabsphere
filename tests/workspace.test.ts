@@ -157,3 +157,28 @@ test("demo-only deployments expose health without enabling private APIs", async 
   assert.deepEqual(await api.request(null, "/health"), { status: "ready", accounts: "unconfigured" });
   await api.request("owner", "/account", { status: 503 });
 });
+
+test("a creator joining the brand team stays independent on their existing offer", async (t) => {
+  const api = await start(":memory:");
+  t.after(() => api.close());
+  const { request } = api;
+  const { id: workspaceId } = await request("owner", "/workspaces", { method: "POST", data: { name: "Independent Review" }, status: 201 });
+  const workspace = "/workspaces/" + workspaceId;
+  const { id: campaignId } = await request("owner", workspace + "/campaigns", { method: "POST", data: brief, status: 201 });
+  const campaign = workspace + "/campaigns/" + campaignId;
+  await request("owner", campaign + "/status", { method: "POST", data: { status: "open" }, status: 204 });
+  await request("creator", "/creator-profile", { method: "POST", data: profile, status: 204 });
+  const { id: offerId } = await request("owner", campaign + "/offers", { method: "POST", data: { creatorId: "creator", amountCents: 50000 }, status: 201 });
+  const offer = "/offers/" + offerId;
+  const invite = await request("owner", workspace + "/invites", { method: "POST", data: { email: identities.creator.email }, status: 201 });
+  await request("creator", "/invites/accept", { method: "POST", data: { token: invite.token } });
+  assert.equal((await request("creator", workspace)).workspace.role, "editor");
+  await request("creator", offer + "/response", { method: "POST", data: { action: "withdraw" }, status: 403 });
+  await request("creator", offer + "/response", { method: "POST", data: { action: "accept" }, status: 204 });
+  await request("creator", offer + "/deliverables", { method: "POST", data: { url: "https://example.test/offer-deliverable" }, status: 204 });
+  const verdict = { revision: 1, decision: "approved" };
+  await request("creator", offer + "/review", { method: "POST", data: verdict, status: 403 });
+  assert.equal((await request("creator", workspace)).offers[0].viewerIsCreator, true);
+  assert.equal((await request("owner", workspace)).offers[0].viewerIsCreator, false);
+  await request("owner", offer + "/review", { method: "POST", data: verdict, status: 204 });
+});

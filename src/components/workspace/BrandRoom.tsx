@@ -1,7 +1,7 @@
 import { useCallback, useState, type FormEvent } from "react";
 import { ArrowRight, ArrowUpRight, Building2, ClipboardCheck, ClipboardList, Copy, FolderKanban, Handshake, Plus, RefreshCw, Search, Users } from "lucide-react";
 import type { BrandWorkspace, Campaign, CreatorProfile } from "@/types/workspace";
-import { date, OfferList, type OfferFilter } from "./OfferList";
+import { date, needsOfferAction, OfferList, type OfferFilter } from "./OfferList";
 import { Feedback, FocusCard, LoadingWorkspace, focusSection } from "./ui";
 import { useResource, type Api, type Perform } from "./api-client";
 
@@ -26,7 +26,7 @@ export function BrandRoom({ workspaceId, api, perform, busy, revision }: RoomPro
   if (error) return <><Feedback error>{error}</Feedback><button className="cs-button cs-secondary" onClick={() => setRefresh((value) => value + 1)}>Retry workspace</button></>;
   if (!data) return <LoadingWorkspace label="Loading brand workspace" />;
   const open = data.campaigns.filter((campaign) => campaign.status === "open");
-  const ready = data.offers.filter((offer) => offer.status === "submitted");
+  const ready = data.offers.filter((offer) => needsOfferAction(offer, "brand"));
   const next = ready[0];
   const drafts = data.campaigns.some((campaign) => campaign.status === "draft");
   const nextStep = next

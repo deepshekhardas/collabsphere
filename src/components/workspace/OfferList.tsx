@@ -19,8 +19,10 @@ export const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 export type OfferFilter = "all" | "action" | "working" | "closed";
 const completed = new Set<OfferStatus>(["approved", "declined", "withdrawn"]);
 
-export function needsOfferAction(status: OfferStatus, persona: "creator" | "brand") {
-  return persona === "brand" ? status === "submitted" : ["sent", "accepted", "changes_requested"].includes(status);
+export function needsOfferAction(offer: Offer, persona: "creator" | "brand") {
+  return persona === "brand"
+    ? offer.status === "submitted" && !offer.viewerIsCreator
+    : ["sent", "accepted", "changes_requested"].includes(offer.status);
 }
 
 export function OfferList({ offers, persona, api, perform, busy, filter: selected, setFilter }: {
@@ -29,8 +31,8 @@ export function OfferList({ offers, persona, api, perform, busy, filter: selecte
 }) {
   const asCreator = persona === "creator";
   const closed = offers.filter((offer) => completed.has(offer.status));
-  const actionable = offers.filter((offer) => needsOfferAction(offer.status, persona));
-  const working = offers.filter((offer) => !completed.has(offer.status) && !needsOfferAction(offer.status, persona));
+  const actionable = offers.filter((offer) => needsOfferAction(offer, persona));
+  const working = offers.filter((offer) => !completed.has(offer.status) && !needsOfferAction(offer, persona));
   const filters: { key: OfferFilter; label: string; items: Offer[] }[] = [
     { key: "all", label: "All offers", items: [...actionable, ...working, ...closed] },
     { key: "action", label: asCreator ? "Needs your action" : "Needs review", items: actionable },
@@ -91,7 +93,7 @@ function OfferCard({ offer, asCreator, api, perform, busy }: {
   }
 
   return (
-    <article className={"cs-record cs-offer-record" + (needsOfferAction(offer.status, asCreator ? "creator" : "brand") ? " is-actionable" : "")}>
+    <article className={"cs-record cs-offer-record" + (needsOfferAction(offer, asCreator ? "creator" : "brand") ? " is-actionable" : "")}>
       <div className="cs-panel-heading">
         <div><small>{asCreator ? offer.workspaceName : offer.creatorName}</small><h3>{offer.campaignTitle}</h3></div>
         <span className={"cs-pill status-" + offer.status}>{labels[offer.status]}</span>
@@ -123,7 +125,7 @@ function OfferCard({ offer, asCreator, api, perform, busy }: {
           </ul>
         </details>
       )}
-      {offer.status === "sent" && (
+      {offer.status === "sent" && (asCreator || !offer.viewerIsCreator) && (
         <div className="cs-actions">
           {asCreator ? (
             <>
@@ -140,7 +142,10 @@ function OfferCard({ offer, asCreator, api, perform, busy }: {
           <button className="cs-button cs-primary" disabled={busy}>{offer.status === "changes_requested" ? "Submit next revision" : "Submit deliverable"}</button>
         </form>
       )}
-      {!asCreator && offer.status === "submitted" && latest && (
+      {!asCreator && offer.status === "submitted" && offer.viewerIsCreator && (
+        <p className="cs-callout">Another team member needs to review this deliverable.</p>
+      )}
+      {!asCreator && offer.status === "submitted" && latest && !offer.viewerIsCreator && (
         <form className="cs-stack cs-inline-form" onSubmit={(event) => void review(event)}>
           <label>Feedback <small>Required for changes</small><textarea name="feedback" rows={3} maxLength={3000} /></label>
           <div className="cs-actions">

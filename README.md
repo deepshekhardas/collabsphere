@@ -47,7 +47,7 @@ Open `http://127.0.0.1:3000/?demo=1` for the demo. Open `http://127.0.0.1:3000/`
 
 3. Run `npm run dev`. Open the account entry point, create an emulator email/password account, then follow the verification link printed by the emulator. Use `npm run test:auth` for an automated run with two disposable users. The smoke script will only use loopback addresses. Restart the emulator to clear the local identities.
 
-`npm test` exercises the real HTTP server and SQLite with controlled identity fixtures. `npm run test:auth` uses actual Firebase Emulator-issued tokens and verifies Google identity, invalid-token rejection, email verification, tenant isolation and a brand-to-creator approval.
+`npm test` exercises the real HTTP server and SQLite with controlled identity fixtures. `npm run test:auth` uses Firebase Emulator-issued tokens to verify Google identity, email verification, team invites, tenant isolation, concurrent offers and independent revision approval. With the emulator running, use `npm run test:auth -- --restart` to start the actual application server on port 5191 with a fresh temporary SQLite database, verify the migration, and repeat the final reads after restarting the process.
 
 ## Production setup
 

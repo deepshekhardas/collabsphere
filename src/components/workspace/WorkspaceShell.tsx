@@ -102,7 +102,7 @@ export function WorkspaceShell({ user, signOut }: { user: User; signOut: () => P
   const loadAccount = useCallback((signal: AbortSignal) => api<AccountWorkspace>("/account", { signal }), [api]);
   const account = useResource(loadAccount, revision);
   const selected = typeof view === "object" ? account.data?.workspaces.find((workspace) => workspace.id === view.workspaceId) : null;
-  const creatorNext = account.data?.offers.find((offer) => needsOfferAction(offer.status, "creator"));
+  const creatorNext = account.data?.offers.find((offer) => needsOfferAction(offer, "creator"));
 
   function navigate(next: View) {
     setView(next);

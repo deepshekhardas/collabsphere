@@ -16,7 +16,7 @@ export class WorkspaceError extends Error {
 export type Identity = { uid: string; email: string };
 type Value = string | number | null;
 type CreatorRow = Omit<CreatorProfile, "published"> & { published: 0 | 1 };
-type OfferRow = Omit<Offer, "deliverables">;
+type OfferRow = Omit<Offer, "deliverables" | "viewerIsCreator"> & { creatorId: string };
 type OfferAccess = { workspaceId: string; campaignTitle: string; creatorId: string; status: OfferStatus };
 
 const timestamp = () => new Date().toISOString();
@@ -25,7 +25,7 @@ const hidden = () => new WorkspaceError(404, "This record was not found.");
 const conflict = (message: string) => new WorkspaceError(409, message);
 const offerFields = `
   o.id, o.campaignId, c.title AS campaignTitle, c.brief, w.name AS workspaceName,
-  p.displayName AS creatorName, o.amountCents, o.note, o.status, o.createdAt
+  p.displayName AS creatorName, o.creatorId, o.amountCents, o.note, o.status, o.createdAt
   FROM offers o
   JOIN campaigns c ON c.id = o.campaignId
   JOIN workspaces w ON w.id = c.workspaceId
@@ -91,9 +91,10 @@ export class WorkspaceStore {
     this.run("INSERT INTO activity VALUES (?, ?, ?, ?, ?, ?)", randomUUID(), workspaceId, uid, kind, detail, timestamp());
   }
 
-  private withDeliverables(rows: OfferRow[]): Offer[] {
-    return rows.map((row) => ({
+  private withDeliverables(rows: OfferRow[], uid: string): Offer[] {
+    return rows.map(({ creatorId, ...row }) => ({
       ...row,
+      viewerIsCreator: creatorId === uid,
       deliverables: this.all<Deliverable>(
         "SELECT revision, url, note, createdAt, review, feedback FROM deliverables WHERE offerId = ? ORDER BY revision DESC",
         row.id,
@@ -117,7 +118,7 @@ export class WorkspaceStore {
         uid,
       ),
       creator: creator ? { ...creator, published: Boolean(creator.published) } : null,
-      offers: this.withDeliverables(this.all<OfferRow>(`SELECT ${offerFields} WHERE o.creatorId = ? ORDER BY o.createdAt DESC, o.id`, uid)),
+      offers: this.withDeliverables(this.all<OfferRow>(`SELECT ${offerFields} WHERE o.creatorId = ? ORDER BY o.createdAt DESC, o.id`, uid), uid),
     };
   }
 
@@ -138,7 +139,7 @@ export class WorkspaceStore {
       campaigns: this.all<Campaign>(
         "SELECT id, title, brief, status, createdAt FROM campaigns WHERE workspaceId = ? ORDER BY createdAt DESC, id", id,
       ),
-      offers: this.withDeliverables(this.all<OfferRow>(`SELECT ${offerFields} WHERE c.workspaceId = ? ORDER BY o.createdAt DESC, o.id`, id)),
+      offers: this.withDeliverables(this.all<OfferRow>(`SELECT ${offerFields} WHERE c.workspaceId = ? ORDER BY o.createdAt DESC, o.id`, id), uid),
       members: this.all<WorkspaceMember>(
         "SELECT a.userId, a.email, m.role FROM accounts a JOIN memberships m ON a.userId = m.userId WHERE m.workspaceId = ? ORDER BY m.role DESC, a.email", id,
       ),
@@ -282,7 +283,7 @@ export class WorkspaceStore {
   changeOffer(uid: string, id: string, action: "accept" | "decline" | "withdraw") {
     this.transaction(() => {
       const offer = this.offerAccess(id);
-      if (action === "withdraw") this.requireWorkspace(uid, offer.workspaceId);
+      if (action === "withdraw") this.requireIndependentReviewer(uid, offer);
       else if (offer.creatorId !== uid) throw hidden();
       if (offer.status !== "sent") throw conflict("This offer has already been answered or withdrawn.");
       const status = { accept: "accepted", decline: "declined", withdraw: "withdrawn" }[action];
@@ -306,7 +307,7 @@ export class WorkspaceStore {
   review(uid: string, id: string, revision: number, decision: "approved" | "changes_requested", feedback: string) {
     this.transaction(() => {
       const offer = this.offerAccess(id);
-      this.requireWorkspace(uid, offer.workspaceId);
+      this.requireIndependentReviewer(uid, offer);
       if (offer.status !== "submitted") throw conflict("This offer is not awaiting review.");
       const changed = this.run("UPDATE deliverables SET review = ?, feedback = ? WHERE offerId = ? AND revision = ? AND review IS NULL", decision, feedback, id, revision);
       if (!changed.changes) throw conflict("The deliverable changed. Review the latest revision.");
@@ -321,5 +322,12 @@ export class WorkspaceStore {
     );
     if (!offer) throw hidden();
     return offer;
+  }
+
+  private requireIndependentReviewer(uid: string, offer: OfferAccess) {
+    this.requireWorkspace(uid, offer.workspaceId);
+    if (offer.creatorId === uid) {
+      throw new WorkspaceError(403, "Another team member must act on behalf of the brand for your offer.");
+    }
   }
 }
